@@ -157,3 +157,85 @@ export function buildActivity(posts: Post[], accounts: SocialAccount[], limit = 
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, limit)
 }
+
+// ---------- Analytics page ----------
+
+export interface TopPost {
+  id: string
+  content: string
+  platform: Platform
+  publishedAt: string
+  engagement: number
+  permalink: string | null
+  image: string | null
+}
+
+export function buildAnalytics(posts: Post[], accounts: SocialAccount[]) {
+  const published = posts.filter((p) => p.status === 'published' && p.publishedAt)
+  const totalEng = published.reduce((s, p) => s + engagementOf(p), 0)
+  const followers = accounts
+    .filter((a) => a.connected && platformConfig[a.platform].enabled)
+    .reduce((s, a) => s + a.followers, 0)
+  const attempted = posts.filter((p) => p.status === 'published' || p.status === 'failed').length
+
+  const stats: (StatCard & { hint?: string })[] = [
+    { label: 'Posts Published', value: published.length, delta: null, trend: 'up', hint: 'All imported and dashboard posts' },
+    { label: 'Total Engagement', value: totalEng, delta: null, trend: 'up', hint: 'Likes, comments and shares' },
+    {
+      label: 'Avg. Engagement / Post',
+      value: published.length ? Math.round(totalEng / published.length) : 0,
+      delta: null,
+      trend: 'up',
+      hint: followers ? `${followers.toLocaleString()} followers across channels` : undefined,
+    },
+    {
+      label: 'Success Rate',
+      value: attempted ? Math.round((published.length / attempted) * 100) : 100,
+      delta: null,
+      trend: 'up',
+      hint: 'Published vs failed',
+    },
+  ]
+
+  // Posts and engagement per month, last 6 months (UTC)
+  const now = new Date()
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - i), 1))
+    return { key: d.toISOString().slice(0, 7), month: d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' }), posts: 0, engagement: 0 }
+  })
+  for (const p of published) {
+    const m = months.find((x) => x.key === p.publishedAt!.slice(0, 7))
+    if (m) {
+      m.posts++
+      m.engagement += engagementOf(p)
+    }
+  }
+
+  // Share of published posts per platform
+  const counts = new Map<Platform, number>()
+  for (const p of published) for (const pl of p.platforms) counts.set(pl, (counts.get(pl) ?? 0) + 1)
+  const totalPlatformPosts = Array.from(counts.values()).reduce((a, b) => a + b, 0)
+  const distribution = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, n]) => ({
+      key,
+      platform: platformConfig[key].label,
+      value: totalPlatformPosts ? Math.round((n / totalPlatformPosts) * 100) : 0,
+      count: n,
+    }))
+
+  const top: TopPost[] = [...published]
+    .sort((a, b) => engagementOf(b) - engagementOf(a))
+    .slice(0, 5)
+    .map((p) => ({
+      id: p.id,
+      content: p.content,
+      platform: p.platforms[0],
+      publishedAt: p.publishedAt!,
+      engagement: engagementOf(p),
+      permalink: p.permalink ?? null,
+      image: p.media?.[0] ?? null,
+    }))
+
+  return { stats, trend: months.map(({ month, posts, engagement }) => ({ month, posts, engagement })), distribution, top }
+}

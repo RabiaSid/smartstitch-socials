@@ -1,19 +1,21 @@
 import { PageHeader } from '@/components/dashboard/page-header'
 import { AnalyticsDashboard } from '@/components/analytics/analytics-dashboard'
-import { analyticsStats, postsPublishedTrend, platformDistribution } from '@/lib/data'
+import { getAccountsForUI } from '@/lib/server/accounts'
+import { getPostsForUI } from '@/lib/server/content'
+import { buildAnalytics } from '@/lib/server/dashboard'
 
-export default function AnalyticsPage() {
+export const dynamic = 'force-dynamic'
+
+export default async function AnalyticsPage() {
+  const [posts, accounts] = await Promise.all([getPostsForUI(), getAccountsForUI()])
+  const data = buildAnalytics(posts, accounts)
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Analytics"
-        description="Track publishing performance and engagement across every channel."
+        description="Real publishing performance and engagement from Instagram and Facebook."
       />
-      <AnalyticsDashboard
-        stats={analyticsStats}
-        trend={postsPublishedTrend}
-        distribution={platformDistribution}
-      />
+      <AnalyticsDashboard {...data} />
     </div>
   )
 }
